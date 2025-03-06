@@ -36,7 +36,7 @@ use diag_data_mod,   only: DIAG_NULL, DIAG_OCEAN, DIAG_ALL, DIAG_OTHER, set_base
                            time_diurnal, time_power, time_none, r8, i8, r4, i4, DIAG_NOT_REGISTERED, &
                            middle_time, begin_time, end_time, MAX_STR_LEN
 use yaml_parser_mod, only: open_and_parse_file, get_value_from_key, get_num_blocks, get_nkeys, &
-                           get_block_ids, get_key_value, get_key_ids, get_key_name
+                           get_block_ids, get_key_value, get_key_ids, get_key_name, missing_file_error_code
 use fms_yaml_output_mod, only: fmsYamlOutKeys_type, fmsYamlOutValues_type, write_yaml_from_struct_3, &
                                yaml_out_add_level2key, initialize_key_struct, initialize_val_struct
 use mpp_mod,         only: mpp_error, FATAL, NOTE, mpp_pe, mpp_root_pe, stdout
@@ -45,6 +45,8 @@ use fms_string_utils_mod, only: fms_array_to_pointer, fms_find_my_string, fms_so
                                 fms_f2c_string
 use platform_mod, only: r4_kind, i4_kind, r8_kind, i8_kind, FMS_FILE_LEN
 use fms_mod, only: lowercase
+use fms_diag_time_utils_mod, only: set_time_type
+use time_manager_mod, only: time_type, date_to_string
 use fms2_io_mod, only: file_exists, get_instance_filename
 
 implicit none
@@ -112,8 +114,9 @@ type diagYamlFiles_type
                                                                          !! Required if “new_file_freq” used
                                                                          !! (DIAG_SECONDS, DIAG_MINUTES, &
                                                                          !! DIAG_HOURS, DIAG_DAYS, DIAG_YEARS)
-  character (len=:),   allocatable :: file_start_time                    !< Time to start the file for the
-                                                                         !! first time. Requires “new_file_freq”
+  type(time_type)                  :: file_start_time                    !< Time to start the file for the
+                                                                         !! first time.
+  logical                          :: file_start_time_set                !< .True. if file_start_time has been set
   integer                          :: filename_time                      !< The time to use when setting the name of
                                                                          !! new files: begin, middle, or end of the
                                                                          !! time_bounds
@@ -391,8 +394,13 @@ subroutine diag_yaml_object_init(diag_subset_output)
   if (index(trim(yamlfilename), "ens_") .ne. 0) then
     if (file_exists(yamlfilename) .and. file_exists("diag_table.yaml")) &
       call mpp_error(FATAL, "Both diag_table.yaml and "//trim(yamlfilename)//" exists, pick one!")
+    !< If the end_* file does not exist, revert back to "diag_table.yaml"
+    !! where every ensemble is using the same yaml
+    if (.not. file_exists(yamlfilename)) yamlfilename = "diag_table.yaml"
   endif
   diag_yaml_id = open_and_parse_file(trim(yamlfilename))
+  if (diag_yaml_id .eq. missing_file_error_code) &
+    call mpp_error(FATAL, "The "//trim(yamlfilename)//" is not present and it is required!")
 
   call diag_get_value_from_key(diag_yaml_id, 0, "title", diag_yaml%diag_title)
   call get_value_from_key(diag_yaml_id, 0, "base_date", diag_yaml%diag_basedate)
@@ -561,6 +569,7 @@ subroutine fill_in_diag_files(diag_yaml_id, diag_file_id, yaml_fileobj)
   integer, allocatable :: key_ids(:) !< Id of the gloabl atttributes key/value pairs
   character(len=:), ALLOCATABLE :: grid_type !< grid_type as it is read in from the yaml
   character(len=:), ALLOCATABLE :: buffer      !< buffer to store any *_units as it is read from the yaml
+  integer :: start_time_int(6) !< The start_time as read in from the diag_table yaml
 
   yaml_fileobj%file_frequnit = 0
 
@@ -583,8 +592,14 @@ subroutine fill_in_diag_files(diag_yaml_id, diag_file_id, yaml_fileobj)
   call set_filename_time(yaml_fileobj, buffer)
   deallocate(buffer)
 
-  call diag_get_value_from_key(diag_yaml_id, diag_file_id, "start_time", &
-       yaml_fileobj%file_start_time, is_optional=.true.)
+  start_time_int = diag_null
+  yaml_fileobj%file_start_time_set = .false.
+  call get_value_from_key(diag_yaml_id, diag_file_id, "start_time", &
+    start_time_int, is_optional=.true.)
+  if (any(start_time_int .ne. diag_null)) then
+    yaml_fileobj%file_start_time_set = .true.
+    call set_time_type(start_time_int, yaml_fileobj%file_start_time)
+   endif
   call diag_get_value_from_key(diag_yaml_id, diag_file_id, "file_duration", buffer, is_optional=.true.)
   call parse_key(yaml_fileobj%file_fname, buffer, yaml_fileobj%file_duration, yaml_fileobj%file_duration_units, &
     "file_duration")
@@ -1070,7 +1085,7 @@ end function get_file_new_file_freq_units
 pure function get_file_start_time (this) &
 result (res)
  class (diagYamlFiles_type), intent(in) :: this !< The object being inquiried
- character (len=:), allocatable :: res !< What is returned
+ type(time_type) :: res !< What is returned
   res = this%file_start_time
 end function get_file_start_time
 !> @brief Inquiry for diag_files_obj%file_duration
@@ -1325,7 +1340,7 @@ end function has_file_new_file_freq_units
 !! @return true if diag_file_obj%file_start_time is allocated
 pure logical function has_file_start_time (this)
   class(diagYamlFiles_type), intent(in) :: this !< diagYamlFiles_type object to initialize
-  has_file_start_time = allocated(this%file_start_time)
+  has_file_start_time = this%file_start_time_set
 end function has_file_start_time
 !> @brief diag_file_obj%file_duration is allocated on th stack, so this is always true
 !! @return true
@@ -1593,7 +1608,8 @@ subroutine dump_diag_yaml_obj( filename )
       if(files(i)%has_file_new_file_freq()) write(unit_num, *) 'new_file_freq:', files(i)%get_file_new_file_freq()
       if(files(i)%has_file_new_file_freq_units()) write(unit_num, *) 'new_file_freq_units:', &
                                                          & files(i)%get_file_new_file_freq_units()
-      if(files(i)%has_file_start_time()) write(unit_num, *) 'start_time:', files(i)%get_file_start_time()
+      if(files(i)%has_file_start_time()) write(unit_num, *) 'start_time:', &
+                                                         & date_to_string(files(i)%get_file_start_time())
       if(files(i)%has_file_duration()) write(unit_num, *) 'duration:', files(i)%get_file_duration()
       if(files(i)%has_file_duration_units()) write(unit_num, *) 'duration_units:', files(i)%get_file_duration_units()
       if(files(i)%has_file_varlist()) write(unit_num, *) 'varlist:', files(i)%get_file_varlist()
@@ -1720,8 +1736,11 @@ subroutine fms_diag_yaml_out()
     enddo
     call fms_f2c_string(vals2(i)%val6, adjustl(tmpstr1))
     call fms_f2c_string(vals2(i)%val7, get_diag_unit_string(fileptr%file_new_file_freq_units))
-    call fms_f2c_string(vals2(i)%val8, trim(fileptr%get_file_start_time()))
-    st_vals(i) = fileptr%get_file_start_time()
+    if (fileptr%has_file_start_time()) then
+      call fms_f2c_string(vals2(i)%val8, trim(date_to_string(fileptr%get_file_start_time())))
+    else
+      call fms_f2c_string(vals2(i)%val8, "")
+    endif
     tmpstr1 = ''
     do k=1, SIZE(fileptr%file_duration)
         if(fileptr%file_duration(k) .eq. diag_null) exit

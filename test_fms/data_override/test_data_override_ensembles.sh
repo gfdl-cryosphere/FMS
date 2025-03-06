@@ -66,34 +66,56 @@ _EOF
 
 #The test only runs with yaml
 if [ -z $parser_skip ]; then
-  for KIND in r4 r8
-  do
-    rm -rf INPUT/.
-    sed 's/write_only = .False./write_only = .True./g' input_base.nml > input.nml
-    test_expect_success "Creating input files (${KIND})" '
-      mpirun -n 12 ../test_data_override_ongrid_${KIND}
-    '
+  rm -rf INPUT/.
 
-    cp input_base.nml input.nml
-    test_expect_success "test_data_override with two ensembles  -yaml (${KIND})" '
-      mpirun -n 12 ../test_data_override_ongrid_${KIND}
-      '
-  done
+  sed 's/write_only = .False./write_only = .True./g' input_base.nml > input.nml
+  test_expect_success "Creating input files" '
+    mpirun -n 12 ../test_data_override_ongrid
+  '
 
-cat <<_EOF > data_table.yaml
+  cp input_base.nml input.nml
+  test_expect_success "test_data_override with two ensembles  -yaml" '
+    mpirun -n 12 ../test_data_override_ongrid
+  '
+
+  cat <<_EOF > data_table.yaml
 data_table:
  - grid_name: OCN
    fieldname_in_model: runoff
    override_file:
    - fieldname_in_file: runoff
-     file_name: INPUT/runoff.daitren.clim.1440x1080.v20180328_ens_02.nc
+     file_name: INPUT/runoff.daitren.clim.1440x1080.v20180328_ens_01.nc
      interp_method: none
    factor: 1.0
 _EOF
 
-    test_expect_failure "test_data_override with both data_table.yaml and data_table.ens_xx.yaml files" '
-      mpirun -n 12 ../test_data_override_ongrid_${KIND}
-      '
-rm -rf INPUT
+  test_expect_failure "test_data_override with both data_table.yaml and data_table.ens_xx.yaml files" '
+    mpirun -n 12 ../test_data_override_ongrid
+  '
+
+  cat <<_EOF > input.nml
+&data_override_nml
+  use_data_table_yaml = .True.
+/
+
+&test_data_override_ongrid_nml
+  test_case = 6
+  write_only = .False.
+/
+
+&ensemble_nml
+  ensemble_size = 2
+/
+_EOF
+
+  rm -rf INPUT/.
+  rm -rf data_table.ens_01.yaml data_table.ens_02.yaml
+
+  test_expect_success "test_data_override with two ensembles, same yaml file" '
+    mpirun -n 12 ../test_data_override_ongrid
+  '
+
+  rm -rf INPUT
 fi
+
 test_done
