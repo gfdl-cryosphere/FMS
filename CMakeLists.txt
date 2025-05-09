@@ -23,7 +23,7 @@ cmake_minimum_required(VERSION 3.12 FATAL_ERROR)
 
 # Define the CMake project
 project(FMS
-  VERSION 2025.01.0
+  VERSION 2025.02.0
   DESCRIPTION  "GFDL FMS Library"
   HOMEPAGE_URL "https://www.gfdl.noaa.gov/fms"
   LANGUAGES C Fortran)
@@ -446,7 +446,7 @@ export(EXPORT FMSExports
 configure_package_config_file(
   ${CMAKE_CURRENT_SOURCE_DIR}/cmake/FMSConfig.cmake.in ${CMAKE_CURRENT_BINARY_DIR}/fms-config.cmake
   INSTALL_DESTINATION ${CONFIG_INSTALL_DESTINATION})
-install(FILES ${CMAKE_CURRENT_BINARY_DIR}/fms-config.cmake
+install(FILES ${CMAKE_SOURCE_DIR}/cmake/FindNetCDF.cmake ${CMAKE_CURRENT_BINARY_DIR}/fms-config.cmake
   DESTINATION ${CONFIG_INSTALL_DESTINATION})
 
 write_basic_package_version_file(
