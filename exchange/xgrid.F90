@@ -1639,7 +1639,8 @@ subroutine setup_xmap(xmap, grid_ids, grid_domains, grid_file, atm_grid, lnd_ug_
         endif
         call read_data(gridfileobj, lowercase(grid_ids(g))//'_mosaic_file', mosaic_file)
         if(.not. open_file(mosaicfileobj,trim(input_dir_name)//trim(mosaic_file), "read")) then
-           call error_mesg('xgrid_mod', 'Error when opening solo mosaic file '//trim(input_dir_name)//trim(mosaic_file), FATAL)
+          call error_mesg('xgrid_mod', &
+                          'Error when opening solo mosaic file '//trim(input_dir_name)//trim(mosaic_file), FATAL)
         endif
         call get_dimension_size(mosaicfileobj, 'ntiles', grid%ntile)
      end select
