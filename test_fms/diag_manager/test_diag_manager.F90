@@ -1,20 +1,19 @@
 !***********************************************************************
-!*                   GNU Lesser General Public License
+!*                             Apache License 2.0
 !*
 !* This file is part of the GFDL Flexible Modeling System (FMS).
 !*
-!* FMS is free software: you can redistribute it and/or modify it under
-!* the terms of the GNU Lesser General Public License as published by
-!* the Free Software Foundation, either version 3 of the License, or (at
-!* your option) any later version.
+!* Licensed under the Apache License, Version 2.0 (the "License");
+!* you may not use this file except in compliance with the License.
+!* You may obtain a copy of the License at
+!*
+!*     http://www.apache.org/licenses/LICENSE-2.0
 !*
 !* FMS is distributed in the hope that it will be useful, but WITHOUT
-!* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
-!* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
-!* for more details.
-!*
-!* You should have received a copy of the GNU Lesser General Public
-!* License along with FMS.  If not, see <http://www.gnu.org/licenses/>.
+!* WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied;
+!* without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+!* PARTICULAR PURPOSE. See the License for the specific language
+!* governing permissions and limitations under the License.
 !***********************************************************************
 
 ! This program runs only one of many possible tests with each execution.
@@ -228,12 +227,8 @@ PROGRAM test
   USE mpp_domains_mod, ONLY: mpp_domains_init, mpp_domains_set_stack_size
   USE fms_mod, ONLY: fms_init, fms_end, mpp_npes, check_nml_error
   USE fms_mod, ONLY: error_mesg, FATAL, WARNING, NOTE, stdlog, stdout
+  USE fms2_io_mod, only: set_filename_appendix
   USE mpp_mod, ONLY: input_nml_file
-#ifdef use_deprecated_io
-  USE fms_io_mod, ONLY: fms_io_init, file_exist, open_file
-  USE fms_io_mod, ONLY: fms_io_exit, set_filename_appendix
-  use mpp_io_mod, only: mpp_io_init
-#endif
   USE constants_mod, ONLY: constants_init, PI, RAD_TO_DEG
 
   USE time_manager_mod, ONLY: time_type, set_calendar_type, set_date, decrement_date, OPERATOR(+), set_time
@@ -291,7 +286,7 @@ PROGRAM test
   ! Variables needed for test 22
   INTEGER :: id_nv, id_nv_init
 
-!!!!!! Stuff for unstrctured grid
+!!!!!! Stuff for unstructured grid
     integer(kind=i4_kind)              :: nx = 8                               !<Total number of grid points in the
                                                                                !! x-dimension (longitude?)
     integer(kind=i4_kind)              :: ny = 8           !<Total number of grid points in the y-dimension (latitude?)
@@ -374,15 +369,6 @@ SELECT CASE ( test_number ) ! Closes just before the CONTAINS block.
     else
         call mpp_domains_init()
     endif
-
-   !Initialize the mpp_io module.
-#ifdef use_deprecated_io
-    if (debug) then
-        call mpp_io_init(MPP_DEBUG)
-    else
-        call mpp_io_init()
-    endif
-#endif
 
    !Set the mpp and mpp_domains stack sizes.
     call mpp_set_stack_size(stackmax)
@@ -547,9 +533,7 @@ SELECT CASE ( test_number ) ! Closes just before the CONTAINS block.
 
   IF ( test_number == 16 ) THEN
      ! Test 16 tests the filename appendix
-#ifdef use_deprecated_io
      CALL set_filename_appendix('g01')
-#endif
   END IF
   id_dat1 = register_diag_field('test_diag_manager_mod', 'dat1', (/id_lon1,id_lat1,id_pfull/), Time, 'sample data','K')
   IF ( test_number == 18 ) THEN

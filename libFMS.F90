@@ -1,20 +1,19 @@
 !***********************************************************************
-!*                   GNU Lesser General Public License
+!*                             Apache License 2.0
 !*
 !* This file is part of the GFDL Flexible Modeling System (FMS).
 !*
-!* FMS is free software: you can redistribute it and/or modify it under
-!* the terms of the GNU Lesser General Public License as published by
-!* the Free Software Foundation, either version 3 of the License, or (at
-!* your option) any later version.
+!* Licensed under the Apache License, Version 2.0 (the "License");
+!* you may not use this file except in compliance with the License.
+!* You may obtain a copy of the License at
+!*
+!*     http://www.apache.org/licenses/LICENSE-2.0
 !*
 !* FMS is distributed in the hope that it will be useful, but WITHOUT
-!* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
-!* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
-!* for more details.
-!*
-!* You should have received a copy of the GNU Lesser General Public
-!* License along with FMS.  If not, see <http://www.gnu.org/licenses/>.
+!* WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied;
+!* without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+!* PARTICULAR PURPOSE. See the License for the specific language
+!* governing permissions and limitations under the License.
 !***********************************************************************
 !> @defgroup FMS FMS
 !> @ingroup libfms
@@ -81,8 +80,6 @@ module fms
                              assignment(=), &
                              fms_amip_interp_i_sst        => i_sst, &
                              fms_amip_interp_j_sst        => j_sst, &
-                             fms_amip_interp_sst_ncep     => sst_ncep, &
-                             fms_amip_interp_sst_anom     => sst_anom, &
                              fms_amip_interp_forecast_mode=> forecast_mode, &
                              fms_amip_interp_use_ncep_sst => use_ncep_sst
   !> astronomy
@@ -293,7 +290,7 @@ module fms
                          fms_field_manager_fm_find_methods => fm_find_methods, &
                          fms_field_manager_fm_copy_list => fm_copy_list, &
                          fms_field_manager_fm_field_name_len => fm_field_name_len, &
-                         fms_field_manager_fm_path_name_len => fm_path_name_len, &
+                         !fms_field_manager_fm_path_name_len => fm_path_name_len, &
                          fms_field_manager_fm_string_len => fm_string_len, &
                          fms_field_manager_fm_type_name_len => fm_type_name_len, &
                          NUM_MODELS, NO_FIELD, MODEL_ATMOS, MODEL_OCEAN, MODEL_LAND, MODEL_ICE, MODEL_COUPLER, &
@@ -395,8 +392,8 @@ module fms
 
   !> fms
   !! routines that don't conflict with fms2_io
-  use fms_mod, only: fms_init, fms_end, error_mesg, fms_error_handler, &
-                     check_nml_error, &
+  use fms_mod, only: fms_init, fms_end, fms_error_mesg => error_mesg, fms_error_handler, &
+                     fms_check_nml_error => check_nml_error, &
                      fms_monotonic_array => monotonic_array, fms_string_array_index => string_array_index, &
                      fms_clock_flag_default => clock_flag_default, fms_print_memory_usage => print_memory_usage, &
                      fms_write_version_number => write_version_number
@@ -704,7 +701,7 @@ module fms
 
   !> platform
   use platform_mod, only: r8_kind, r4_kind, i8_kind, i4_kind, c8_kind, c4_kind, &
-                          l8_kind, l4_kind, i2_kind, ptr_kind
+                          l8_kind, l4_kind, i2_kind, ptr_kind, FMS_PATH_LEN
 
   !> random_numbers
   use random_numbers_mod, only: fms_random_numbers_randomNumberStream => randomNumberStream, &

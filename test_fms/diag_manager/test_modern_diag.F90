@@ -1,20 +1,19 @@
 !***********************************************************************
-!*                   GNU Lesser General Public License
+!*                             Apache License 2.0
 !*
 !* This file is part of the GFDL Flexible Modeling System (FMS).
 !*
-!* FMS is free software: you can redistribute it and/or modify it under
-!* the terms of the GNU Lesser General Public License as published by
-!* the Free Software Foundation, either version 3 of the License, or (at
-!* your option) any later version.
+!* Licensed under the Apache License, Version 2.0 (the "License");
+!* you may not use this file except in compliance with the License.
+!* You may obtain a copy of the License at
+!*
+!*     http://www.apache.org/licenses/LICENSE-2.0
 !*
 !* FMS is distributed in the hope that it will be useful, but WITHOUT
-!* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
-!* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
-!* for more details.
-!*
-!* You should have received a copy of the GNU Lesser General Public
-!* License along with FMS.  If not, see <http://www.gnu.org/licenses/>.
+!* WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied;
+!* without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+!* PARTICULAR PURPOSE. See the License for the specific language
+!* governing permissions and limitations under the License.
 !***********************************************************************
 
 !> @brief  This programs tests the modern diag_manager
@@ -120,7 +119,7 @@ allocate(ug_dim_data(ug_dim_size))
 call mpp_get_UG_domain_grid_index(land_domain, ug_dim_data)
 ug_dim_data = ug_dim_data - 1
 
-! Set up the intial time
+! Set up the initial time
 Time = set_date(2,1,1,0,0,0)
 
 ! Register the diags axis
@@ -161,11 +160,13 @@ id_var3 = register_diag_field  ('atm_mod', 'var3', (/id_x3, id_y3/), Time, 'Var 
 id_var4 = register_diag_field  ('atm_mod', 'var4', (/id_x3, id_y3, id_z/), Time, &
                                 '3D var in a cube sphere domain', 'mullions')
 id_var5 = register_diag_field  ('lnd_mod', 'var5', (/id_ug/), Time, 'Var in a UG domain', 'mullions')
-id_var6 = register_diag_field  ('atm_mod', 'var6', (/id_z/), Time, 'Var not domain decomposed', 'mullions')
+id_var6 = register_diag_field  ('atm_mod', 'var6', (/id_z/), Time, 'Var not domain decomposed', 'mullions', &
+                                standard_name="I hope this is the MDTF tables")
 
 !< This has the same name as var1, but it should have a different id because the module is different
 !! so it should have its own diag_obj
-id_var7 = register_diag_field  ('lnd_mod', 'var1', Time, 'Some scalar var', 'mullions')
+id_var7 = register_diag_field  ('lnd_mod', 'var1', Time, 'Some scalar var', 'mullions', &
+                                 standard_name="Land is important!")
 id_var8 = register_static_field ('atm_mod', 'var7', (/id_z/), "Be static!", "none")
 
 if (.not. debug) then

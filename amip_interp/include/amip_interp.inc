@@ -1,20 +1,19 @@
 !***********************************************************************
-!*                   GNU Lesser General Public License
+!*                             Apache License 2.0
 !*
 !* This file is part of the GFDL Flexible Modeling System (FMS).
 !*
-!* FMS is free software: you can redistribute it and/or modify it under
-!* the terms of the GNU Lesser General Public License as published by
-!* the Free Software Foundation, either version 3 of the License, or (at
-!* your option) any later version.
+!* Licensed under the Apache License, Version 2.0 (the "License");
+!* you may not use this file except in compliance with the License.
+!* You may obtain a copy of the License at
+!*
+!*     http://www.apache.org/licenses/LICENSE-2.0
 !*
 !* FMS is distributed in the hope that it will be useful, but WITHOUT
-!* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
-!* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
-!* for more details.
-!*
-!* You should have received a copy of the GNU Lesser General Public
-!* License along with FMS.  If not, see <http://www.gnu.org/licenses/>.
+!* WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied;
+!* without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+!* PARTICULAR PURPOSE. See the License for the specific language
+!* governing permissions and limitations under the License.
 !***********************************************************************
 
 ! modified by JHC
@@ -114,9 +113,6 @@ if ( .not.use_daily ) then
               temp1(:,:) = temp2(:,:)   ! SJL BUG fix: June 24, 2011
           else
               call READ_RECORD_ ('sst', Date1, Udate1, temp1)
-              if ( use_ncep_sst .and. (.not. no_anom_sst) ) then
-                   temp1 = temp1 + SST_ANOM_
-              endif
               call horiz_interp ( Interp%Hintrp, temp1, Interp%DATA1_)
               call CLIP_DATA_ ('sst', Interp%DATA1_)
              Interp%Date1 = Date1
@@ -127,9 +123,6 @@ if ( .not.use_daily ) then
 
       if (Date2 /= Interp%Date2) then
           call READ_RECORD_ ('sst', Date2, Udate2, temp2)
-          if ( use_ncep_sst .and. (.not. no_anom_sst) ) then
-               temp2 = temp2 + SST_ANOM_
-          endif
           call horiz_interp ( Interp%Hintrp, temp2, Interp%DATA2_)
           call CLIP_DATA_ ('sst', Interp%DATA2_)
           Interp%Date2 = Date2
@@ -145,11 +138,6 @@ if ( .not.use_daily ) then
 !      Nudging runs: (Note: NCEP SST updated only every 6-hr)
 !      Compute SST anomaly from global SST datasets for subsequent forecast runs
 !-------------------------------------------------------------------------------
-    if ( use_ncep_sst .and. no_anom_sst ) then
-         sst_anom = SST_NCEP_ - (temp1 + fmonth*(temp2 - temp1))
-         call horiz_interp (Interp%Hintrp, SST_NCEP_, sst)
-         call CLIP_DATA_ ('sst', sst)
-    endif
 
 !! DEBUG CODE
     if (DEBUG) then
@@ -380,15 +368,7 @@ else
 !-- SJL -------------------------------------------------------------
 ! Can NOT use ncep_sst to determine sea_ice For seasonal forecast
 ! Use climo sea ice for seasonal runs
-            if ( use_ncep_sst .and. use_ncep_ice ) then
-               where ( SST_NCEP_ <= (real(TFREEZE, FMS_AMIP_INTERP_KIND_)+real(tice_crit, FMS_AMIP_INTERP_KIND_)) )
-                   sice = 1._lkind
-               elsewhere
-                   sice = 0._lkind
-               endwhere
-            else
-               call READ_RECORD_ ('ice', Date1, Udate1, sice)
-            endif
+            call READ_RECORD_ ('ice', Date1, Udate1, sice)
 !--------------------------------------------------------------------
             call horiz_interp ( Interp%Hintrp, sice, Interp%DATA1_)
             call CLIP_DATA_ ('ice', Interp%DATA1_)
@@ -401,15 +381,7 @@ else
     if (Date2 /= Interp%Date2) then
 
 !-- SJL -------------------------------------------------------------
-            if ( use_ncep_sst .and. use_ncep_ice ) then
-               where ( SST_NCEP_ <= (real(TFREEZE, FMS_AMIP_INTERP_KIND_)+real(tice_crit, FMS_AMIP_INTERP_KIND_)) )
-                   sice = 1._lkind
-               elsewhere
-                   sice = 0._lkind
-               endwhere
-            else
-               call READ_RECORD_ ('ice', Date2, Udate2, sice)
-            endif
+            call READ_RECORD_ ('ice', Date2, Udate2, sice)
 !--------------------------------------------------------------------
         call horiz_interp ( Interp%Hintrp, sice, Interp%DATA2_)
         call CLIP_DATA_ ('ice', Interp%DATA2_)

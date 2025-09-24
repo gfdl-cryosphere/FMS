@@ -1,20 +1,19 @@
 !***********************************************************************
-!*                   GNU Lesser General Public License
+!*                             Apache License 2.0
 !*
 !* This file is part of the GFDL Flexible Modeling System (FMS).
 !*
-!* FMS is free software: you can redistribute it and/or modify it under
-!* the terms of the GNU Lesser General Public License as published by
-!* the Free Software Foundation, either version 3 of the License, or (at
-!* your option) any later version.
+!* Licensed under the Apache License, Version 2.0 (the "License");
+!* you may not use this file except in compliance with the License.
+!* You may obtain a copy of the License at
+!*
+!*     http://www.apache.org/licenses/LICENSE-2.0
 !*
 !* FMS is distributed in the hope that it will be useful, but WITHOUT
-!* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
-!* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
-!* for more details.
-!*
-!* You should have received a copy of the GNU Lesser General Public
-!* License along with FMS.  If not, see <http://www.gnu.org/licenses/>.
+!* WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied;
+!* without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+!* PARTICULAR PURPOSE. See the License for the specific language
+!* governing permissions and limitations under the License.
 !***********************************************************************
 
 !> @defgroup fms_diag_yaml_mod fms_diag_yaml_mod
@@ -34,7 +33,7 @@ use diag_data_mod,   only: DIAG_NULL, DIAG_OCEAN, DIAG_ALL, DIAG_OTHER, set_base
                            index_gridtype, null_gridtype, DIAG_SECONDS, DIAG_MINUTES, DIAG_HOURS, DIAG_DAYS, &
                            DIAG_MONTHS, DIAG_YEARS, time_average, time_rms, time_max, time_min, time_sum, &
                            time_diurnal, time_power, time_none, r8, i8, r4, i4, DIAG_NOT_REGISTERED, &
-                           middle_time, begin_time, end_time, MAX_STR_LEN
+                           middle_time, begin_time, end_time, MAX_STR_LEN, MAX_DIMENSIONS
 use yaml_parser_mod, only: open_and_parse_file, get_value_from_key, get_num_blocks, get_nkeys, &
                            get_block_ids, get_key_value, get_key_ids, get_key_name, missing_file_error_code
 use fms_yaml_output_mod, only: fmsYamlOutKeys_type, fmsYamlOutValues_type, write_yaml_from_struct_3, &
@@ -144,14 +143,16 @@ type diagYamlFiles_type
                                                                          !! added as global meta data to
                                                                          !! the file
   character (len=:),    allocatable :: default_var_precision !< The precision for all of the variables in the file
-                                                             !! This may be overriden if the precison was defined
+                                                             !! This may be overridden if the precison was defined
                                                              !! at the variable level
   character (len=:),    allocatable :: default_var_reduction !< The reduction for all of the variables in the file
-                                                             !! This may be overriden if the reduction was defined at
+                                                             !! This may be overridden if the reduction was defined at
                                                              !! the variable level
   character (len=:),    allocatable :: default_var_module    !< The module for all of the variables in the file
-                                                             !! This may be overriden if the modules was defined at the
+                                                             !! This may be overridden if the modules was defined at the
                                                              !! variable level
+  logical                           :: use_collective_writes !< True if using collective writes, default is false
+  integer, dimension(MAX_DIMENSIONS):: default_chunksizes    !< Specified chunksizes to use by default
  contains
 
  !> All getter functions (functions named get_x(), for member field named x)
@@ -171,6 +172,7 @@ type diagYamlFiles_type
  procedure, public :: get_file_varlist
  procedure, public :: get_file_global_meta
  procedure, public :: get_filename_time
+ procedure, public :: is_using_collective_writes
  procedure, public :: is_global_meta
  !> Has functions to determine if allocatable variables are true.  If a variable is not an allocatable
  !! then is will always return .true.
@@ -202,11 +204,13 @@ type diagYamlFilesVar_type
   character (len=:), private, allocatable :: var_outname !< Name of the variable as written to the file
   character (len=:), private, allocatable :: var_longname !< Overwrites the long name of the variable
   character (len=:), private, allocatable :: var_units !< Overwrites the units
+  character (len=:), private, allocatable :: standard_name !< Standard_name (saved from the register_diag_field call)
   real(kind=r4_kind), private             :: var_zbounds(2)  !< The z axis limits [vert_min, vert_max]
   integer          , private              :: n_diurnal !< Number of diurnal samples
                                                        !! 0 if var_reduction is not "diurnalXX"
   integer          , private              :: pow_value !< The power value
                                                        !! 0 if pow_value is not "powXX"
+  integer, dimension(MAX_DIMENSIONS), private :: chunksizes !< Specified chunksize for each axis in the field
   logical          , private              :: var_file_is_subregional !< true if the file this entry
                                                                      !! belongs to is subregional
 
@@ -229,6 +233,7 @@ type diagYamlFilesVar_type
   procedure :: get_var_attributes
   procedure :: get_n_diurnal
   procedure :: get_pow_value
+  procedure :: get_chunksizes
   procedure :: is_var_attributes
 
   procedure :: has_var_fname
@@ -243,8 +248,11 @@ type diagYamlFilesVar_type
   procedure :: has_var_attributes
   procedure :: has_n_diurnal
   procedure :: has_pow_value
+  procedure :: has_standname
+  procedure :: has_chunksizes
   procedure :: add_axis_name
   procedure :: is_file_subregional
+  procedure :: add_standname
 
 end type diagYamlFilesVar_type
 
@@ -387,6 +395,15 @@ subroutine diag_yaml_object_init(diag_subset_output)
   logical              :: is_instantaneous !< .True. if the file is instantaneous (i.e no averaging)
   character(len=FMS_FILE_LEN)   :: yamlfilename     !< Name of the expected diag_table.yaml
 
+  integer                                  :: nmods              !< Number of module block in a file
+  integer,                     allocatable :: mod_ids(:)         !< Ids for each module block in a file
+  integer,                     allocatable :: nvars_per_file(:)  !< Number of variables in each file that are actually
+                                                                 !! being written
+  logical,                     allocatable :: has_module_block(:)!< True if each file is using the module block
+  character(len=FMS_FILE_LEN), allocatable :: mod_name(:)        !< Buffer to store module name
+  character(len=FMS_FILE_LEN)              :: buffer             !< Buffer to stote string variables
+  integer                                  :: istart, iend       !< Starting and ending indices of the file block
+
   if (diag_yaml_module_initialized) return
 
   ! If doing and ensemble or nest run add the filename appendix (ens_XX or nest_XX) to the filename
@@ -414,7 +431,7 @@ subroutine diag_yaml_object_init(diag_subset_output)
 
   ignore = .false.
   total_nvars = 0
-  !< If you are on two seperate pelists
+  !< If you are on two separate pelists
   if(diag_subset_output .ne. DIAG_ALL) then
     do i = 1, nfiles
       is_ocean = .false.
@@ -429,6 +446,8 @@ subroutine diag_yaml_object_init(diag_subset_output)
 
   !< Determine how many files are in the diag_yaml, ignoring those with write_file = False
   actual_num_files = 0
+  allocate(nvars_per_file(nfiles))
+  allocate(has_module_block(nfiles))
   do i = 1, nfiles
     write_file = .true.
     call get_value_from_key(diag_yaml_id, diag_file_ids(i), "write_file", write_file, is_optional=.true.)
@@ -436,7 +455,31 @@ subroutine diag_yaml_object_init(diag_subset_output)
 
     !< If ignoring the file, ignore the fields in that file too!
     if (.not. ignore(i)) then
-        nvars = get_total_num_vars(diag_yaml_id, diag_file_ids(i))
+        ! Determine if the file has defined a module block
+        nmods = 0
+        nmods = get_num_blocks(diag_yaml_id, "modules", parent_block_id=diag_file_ids(i))
+
+        nvars_per_file(i) = get_num_blocks(diag_yaml_id, "varlist", parent_block_id=diag_file_ids(i))
+        if (nmods .ne. 0) then
+          has_module_block(i) = .true.
+          ! Get the total number of variables in each module block, ignoring those with write_var = .false.
+          if (nvars_per_file(i) .ne. 0) &
+            call mpp_error(FATAL, "diag_manager_mod:: the file:"//trim(filename)//" has a 'modules' block defined "//&
+                                  "and a 'module' key defined at the file level. This is not allowed!")
+
+          allocate(mod_ids(nmods))
+          call get_block_ids(diag_yaml_id, "modules", mod_ids, parent_block_id=diag_file_ids(i))
+
+          nvars = 0
+          do j =  1, nmods
+            nvars_per_file(i) = nvars_per_file(i) + get_num_blocks(diag_yaml_id, "varlist", parent_block_id=mod_ids(j))
+            nvars = nvars + get_total_num_vars(diag_yaml_id, mod_ids(j))
+          enddo
+          deallocate(mod_ids)
+        else
+          nvars = get_total_num_vars(diag_yaml_id, diag_file_ids(i))
+          has_module_block(i) = .false.
+        endif
         total_nvars = total_nvars + nvars
         if (nvars .ne. 0) then
           actual_num_files = actual_num_files + 1
@@ -469,16 +512,43 @@ subroutine diag_yaml_object_init(diag_subset_output)
     file_list%file_name(file_count) = trim(diag_yaml%diag_files(file_count)%file_fname)//c_null_char
     file_list%diag_file_indices(file_count) = file_count
 
-    nvars = 0
-    nvars = get_num_blocks(diag_yaml_id, "varlist", parent_block_id=diag_file_ids(i))
-    allocate(var_ids(nvars))
-    call get_block_ids(diag_yaml_id, "varlist", var_ids, parent_block_id=diag_file_ids(i))
+    if (has_module_block(i)) then
+      allocate(var_ids(nvars_per_file(i)))
+      allocate(mod_name(nvars_per_file(i)))
+      nmods = get_num_blocks(diag_yaml_id, "modules", parent_block_id=diag_file_ids(i))
+      allocate(mod_ids(nmods))
+      call get_block_ids(diag_yaml_id, "modules", mod_ids, parent_block_id=diag_file_ids(i))
+
+      istart = 1
+      nvars_per_file(i) = 0
+      do j = 1, nmods
+        iend = istart + get_num_blocks(diag_yaml_id, "varlist", parent_block_id=mod_ids(j)) - 1
+        call get_block_ids(diag_yaml_id, "varlist", var_ids(istart:iend), parent_block_id=mod_ids(j))
+
+        ! Update nvars_per_file to only include those are actually being written
+        nvars_per_file(i) = nvars_per_file(i) + get_total_num_vars(diag_yaml_id, mod_ids(j))
+
+        call get_value_from_key(diag_yaml_id, mod_ids(j), "module", buffer)
+        mod_name(istart:iend) = trim(buffer)
+
+        istart  = iend + 1
+      enddo
+
+      deallocate(mod_ids)
+    else
+      allocate(var_ids(get_num_blocks(diag_yaml_id, "varlist", parent_block_id=diag_file_ids(i))))
+      allocate(mod_name(size(var_ids)))
+      call get_block_ids(diag_yaml_id, "varlist", var_ids, parent_block_id=diag_file_ids(i))
+      nvars_per_file(i) = get_total_num_vars(diag_yaml_id, diag_file_ids(i))
+    endif
+
     file_var_count = 0
-    allocate(diag_yaml%diag_files(file_count)%file_varlist(get_total_num_vars(diag_yaml_id, diag_file_ids(i))))
-    allocate(diag_yaml%diag_files(file_count)%file_outlist(get_total_num_vars(diag_yaml_id, diag_file_ids(i))))
+    allocate(diag_yaml%diag_files(file_count)%file_varlist(nvars_per_file(i)))
+    allocate(diag_yaml%diag_files(file_count)%file_outlist(nvars_per_file(i)))
+
     allow_averages = .not. diag_yaml%diag_files(file_count)%file_freq(1) < 1
     is_instantaneous = .false.
-    nvars_loop: do j = 1, nvars
+    nvars_loop: do j = 1, size(var_ids)
       write_var = .true.
       call get_value_from_key(diag_yaml_id, var_ids(j), "write_var", write_var, is_optional=.true.)
       if (.not. write_var) cycle
@@ -494,7 +564,7 @@ subroutine diag_yaml_object_init(diag_subset_output)
       diag_yaml%diag_fields(var_count)%var_file_is_subregional = diag_yaml%diag_files(file_count)%has_file_sub_region()
 
       call fill_in_diag_fields(diag_yaml_id, diag_yaml%diag_files(file_count), var_ids(j), &
-        diag_yaml%diag_fields(var_count), allow_averages)
+        diag_yaml%diag_fields(var_count), allow_averages, has_module_block(i), mod_name(j))
 
       !> Save the variable name in the diag_file type
       diag_yaml%diag_files(file_count)%file_varlist(file_var_count) = diag_yaml%diag_fields(var_count)%var_varname
@@ -512,6 +582,7 @@ subroutine diag_yaml_object_init(diag_subset_output)
       variable_list%diag_field_indices(var_count) = var_count
     enddo nvars_loop
     deallocate(var_ids)
+    deallocate(mod_name)
   enddo nfiles_loop
 
   !> Sort the file list in alphabetical order
@@ -643,16 +714,28 @@ subroutine fill_in_diag_files(diag_yaml_id, diag_file_id, yaml_fileobj)
     is_optional=.true.)
   call diag_get_value_from_key(diag_yaml_id, diag_file_id, "module", yaml_fileobj%default_var_module, &
     is_optional=.true.)
+
+  yaml_fileobj%use_collective_writes = .false.
+  call get_value_from_key(diag_yaml_id, diag_file_id, "use_collective_writes", &
+    yaml_fileobj%use_collective_writes, is_optional=.true.)
+
+  yaml_fileobj%default_chunksizes = DIAG_NULL
+  call get_value_from_key(diag_yaml_id, diag_file_id, "chunksizes", &
+    yaml_fileobj%default_chunksizes, is_optional=.true.)
+
 end subroutine
 
 !> @brief Fills in a diagYamlFilesVar_type with the contents of a variable block in
 !! diag_table.yaml
-subroutine fill_in_diag_fields(diag_file_id, yaml_fileobj, var_id, field, allow_averages)
+subroutine fill_in_diag_fields(diag_file_id, yaml_fileobj, var_id, field, allow_averages, &
+                               has_module_block, mod_name)
   integer,                        intent(in)  :: diag_file_id !< Id of the file block in the yaml file
   type(diagYamlFiles_type),       intent(in)  :: yaml_fileobj !< The yaml file obj for the variables
   integer,                        intent(in)  :: var_id       !< Id of the variable block in the yaml file
   type(diagYamlFilesVar_type), intent(inout)  :: field        !< diagYamlFilesVar_type obj to read the contents into
   logical,                        intent(in)  :: allow_averages !< .True. if averages are allowed for this file
+  logical,                        intent(in)  :: has_module_block
+  character(len=*),               intent(in)  :: mod_name
 
   integer :: natt          !< Number of attributes in variable
   integer :: var_att_id(1) !< Id of the variable attribute block
@@ -682,13 +765,17 @@ subroutine fill_in_diag_fields(diag_file_id, yaml_fileobj, var_id, field, allow_
         "Check your diag_table.yaml for the field:"//trim(field%var_varname))
   endif
 
-  if (yaml_fileobj%default_var_module .eq. "") then
+  if (yaml_fileobj%default_var_module .eq. "" .and. .not. has_module_block) then
     call diag_get_value_from_key(diag_file_id, var_id, "module", field%var_module)
-  else
+ else
     call diag_get_value_from_key(diag_file_id, var_id, "module", buffer, is_optional=.true.)
     !! If the module was set for the variable, override it with the default
     if (trim(buffer) .eq. "") then
-      field%var_module = yaml_fileobj%default_var_module
+      if (has_module_block) then
+        field%var_module = trim(mod_name)
+      else
+        field%var_module = yaml_fileobj%default_var_module
+      endif
     else
       field%var_module = trim(buffer)
     endif
@@ -732,6 +819,12 @@ subroutine fill_in_diag_fields(diag_file_id, yaml_fileobj, var_id, field, allow_
   field%var_zbounds = DIAG_NULL
   call get_value_from_key(diag_file_id, var_id, "zbounds", field%var_zbounds, is_optional=.true.)
   if (field%has_var_zbounds()) MAX_SUBAXES = MAX_SUBAXES + 1
+
+  field%chunksizes = DIAG_NULL
+  call get_value_from_key(diag_file_id, var_id, "chunksizes", field%chunksizes, is_optional=.true.)
+  if (.not. field%has_chunksizes()) then
+    field%chunksizes = yaml_fileobj%default_chunksizes
+  endif
 end subroutine
 
 !> @brief diag_manager wrapper to get_value_from_key to use for allocatable
@@ -823,10 +916,10 @@ subroutine parse_key(filename, buffer, file_freq, file_frequnit, var)
   character(len=*),         intent(in)     :: var              !< Name of the key parsing
 
   integer            :: j           !< location of the ",' in the buffer
-  integer            :: k           !< location of the " " that seperated the units
+  integer            :: k           !< location of the " " that separated the units
   logical            :: finished    !< .true. if the parsing is complete
   integer            :: count       !< Number of keys that have been parsed
-  character(len=255) :: str         !< Member of the comma seperated list
+  character(len=255) :: str         !< Member of the comma separated list
   character(len=10)  :: units       !< String to hold the units
   integer            :: err_unit    !< Error key
 
@@ -1140,6 +1233,16 @@ function is_global_meta(this) &
    res = .true.
 end function
 
+!> \brief Determines whether or not the file is using netcdf collective writes
+!! \return logical indicating whether or not the file is using netcdf collective writes
+pure function is_using_collective_writes(this) &
+  result(res)
+  class (diagYamlFiles_type), intent(in) :: this !< The object being inquiried
+
+  logical :: res
+  res = this%use_collective_writes
+end function
+
 !> @brief Increate the current_new_file_freq_index by 1
 subroutine increase_new_file_freq_index(this)
   class(diagYamlFiles_type), intent(inout) :: this !< The file object
@@ -1253,6 +1356,17 @@ result (res)
   integer :: res !< What is returned
   res = this%pow_value
 end function get_pow_value
+
+!> @brief Inquiry for chunksizes
+!! @return the chunksizes for the fiel
+pure function get_chunksizes(this) &
+result(res)
+  class (diagYamlFilesVar_type), intent(in) :: this !< The object being inquiried
+  integer :: res(MAX_DIMENSIONS) !< What is returned
+
+  res = this%chunksizes
+end function get_chunksizes
+
 !> @brief Inquiry for whether var_attributes is allocated
 !! @return Flag indicating if var_attributes is allocated
 function is_var_attributes(this) &
@@ -1453,6 +1567,19 @@ pure logical function has_pow_value(this)
   class(diagYamlFilesVar_type), intent(in) :: this !< diagYamlvar_type object to inquire
   has_pow_value = (this%pow_value .ne. 0)
 end function has_pow_value
+!> @brief Checks if diag_file_obj%standname is set
+!! @return true if diag_file_obj%standname is set
+pure logical function has_standname(this)
+  class(diagYamlFilesVar_type), intent(in) :: this !< diagYamlvar_type object to inquire
+  has_standname = (this%standard_name .ne. "")
+end function has_standname
+
+!> @brief Checks if chunksizes is set for the diag field
+!! @return true if chunksizes is set for the diag field
+pure logical function has_chunksizes(this)
+  class(diagYamlFilesVar_type), intent(in) :: this !< diagYamlvar_type object to inquire
+  has_chunksizes = any(this%chunksizes .ne. DIAG_NULL)
+end function has_chunksizes
 
 !> @brief Checks if diag_file_obj%diag_title is allocated
 !! @return true if diag_file_obj%diag_title is allocated
@@ -1733,7 +1860,7 @@ subroutine fms_diag_yaml_out(ntimes, ntiles, ndistributedfiles)
 
     !! This is the number of distributed files
     !! If the diag files were not combined, the name of the diag file is going to be
-    !! filename_tileXX.nc.YY, where YY is the distributed file number 
+    !! filename_tileXX.nc.YY, where YY is the distributed file number
     !! (1 to the number of distributed files)
     call fms_f2c_string(keys2(i)%key13, 'number_of_distributed_files')
 
@@ -1814,6 +1941,7 @@ subroutine fms_diag_yaml_out(ntimes, ntiles, ndistributedfiles)
         call fms_f2c_string(keys3(key3_i)%key9, 'n_diurnal')
         call fms_f2c_string(keys3(key3_i)%key10, 'pow_value')
         call fms_f2c_string(keys3(key3_i)%key11, 'dimensions')
+        call fms_f2c_string(keys3(key3_i)%key12, 'standard_name')
         if (varptr%has_var_module())   call fms_f2c_string(vals3(key3_i)%val1, varptr%var_module)
         if (varptr%has_var_varname())  call fms_f2c_string(vals3(key3_i)%val2, varptr%var_varname)
         if (varptr%has_var_reduction()) then
@@ -1853,6 +1981,9 @@ subroutine fms_diag_yaml_out(ntimes, ntiles, ndistributedfiles)
 
         tmpstr1 = ''; tmpstr1 = varptr%var_axes_names
         call fms_f2c_string(vals3(key3_i)%val11, trim(adjustl(tmpstr1)))
+
+        if(diag_yaml%diag_fields(varnum_i)%has_standname())&
+          call fms_f2c_string(vals3(key3_i)%val12, diag_yaml%diag_fields(varnum_i)%standard_name)
       enddo
     endif
 
@@ -2079,6 +2210,18 @@ subroutine add_axis_name( this, axis_name )
     this%var_axes_names = trim(axis_name)//" "//trim(this%var_axes_names)
 
 end subroutine add_axis_name
+
+!> @brief Adds the standname for the DiagYamlFilesVar_type
+subroutine add_standname (this, standard_name)
+  class(diagYamlFilesVar_type), intent(inout) :: this
+  character(len=*), optional, intent(in) :: standard_name
+
+  if (present(standard_name)) then
+    this%standard_name = standard_name(1:len_trim(standard_name))
+  else
+    this%standard_name = ""
+  endif
+end subroutine add_standname
 
 pure function is_file_subregional( this ) &
   result(res)

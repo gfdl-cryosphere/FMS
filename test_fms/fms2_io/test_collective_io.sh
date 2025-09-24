@@ -20,34 +20,39 @@
 #***********************************************************************
 
 # This is part of the GFDL FMS package. This is a shell script to
-# execute tests in the test_fms/mpp directory.
+# execute tests in the test_fms/fms2_io directory.
 
-# Ryan Mulhall
-
+#
 # Set common test settings.
 . ../test-lib.sh
 
-# create and enter directory for in/output
+if [ ! -z $parallel_skip ]; then
+  SKIP_TESTS="test_collective_io.[1-2]"
+fi
+
+# Create and enter output directory
 output_dir
 
-#Create file for test.
-cat <<_EOF > input.nml
-&test_mpp_io_nml
-  nx = 360
-  ny = 200
-  nz = 50
-  stackmaxd = 5000000
-  layout = 1,1
-  io_layout = 1,1
-/
+touch input.nml
 
-&mpp_io_nml
-  io_clocks_on = .true.
+test_expect_success "Test NetCDF-4 parallel writes" '
+  mpirun -n 6 ../test_parallel_writes
+'
+
+test_expect_success "Test NetCDF-4 collective reads" '
+  mpirun -n 6 ../test_collective_io
+'
+
+rm -rf *.nc*
+# The code should still run if not using netcdf4 files, it just won't use collective io
+cat <<_EOF > input.nml
+&test_collective_io_nml
+  nc_format = "64bit"
 /
 _EOF
 
-test_expect_success "mpp_io functionality with mixed prec reals" '
-    mpirun -n 12 ../test_io_R4_R8
+test_expect_success "Test fallback to non-collective reads" '
+  mpirun -n 6 ../test_collective_io
 '
 
 test_done

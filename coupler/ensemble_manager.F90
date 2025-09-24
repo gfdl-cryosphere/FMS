@@ -1,20 +1,19 @@
 !***********************************************************************
-!*                   GNU Lesser General Public License
+!*                             Apache License 2.0
 !*
 !* This file is part of the GFDL Flexible Modeling System (FMS).
 !*
-!* FMS is free software: you can redistribute it and/or modify it under
-!* the terms of the GNU Lesser General Public License as published by
-!* the Free Software Foundation, either version 3 of the License, or (at
-!* your option) any later version.
+!* Licensed under the Apache License, Version 2.0 (the "License");
+!* you may not use this file except in compliance with the License.
+!* You may obtain a copy of the License at
+!*
+!*     http://www.apache.org/licenses/LICENSE-2.0
 !*
 !* FMS is distributed in the hope that it will be useful, but WITHOUT
-!* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
-!* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
-!* for more details.
-!*
-!* You should have received a copy of the GNU Lesser General Public
-!* License along with FMS.  If not, see <http://www.gnu.org/licenses/>.
+!* WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied;
+!* without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+!* PARTICULAR PURPOSE. See the License for the specific language
+!* governing permissions and limitations under the License.
 !***********************************************************************
 !> @defgroup ensemble_manager_mod ensemble_manager_mod
 !> @ingroup coupler
@@ -30,9 +29,6 @@ module ensemble_manager_mod
   use mpp_mod, only : mpp_pe, mpp_declare_pelist
   use mpp_mod, only : input_nml_file
   use fms2_io_mod, only : fms2_io_set_filename_appendix=>set_filename_appendix
-#ifdef use_deprecated_io
-  use fms_io_mod, only  : fms_io_set_filename_appendix=>set_filename_appendix
-#endif
 
   IMPLICIT NONE
 
@@ -407,12 +403,7 @@ contains
     if (ensemble_size > 1) then
        write( text,'(a,i2.2)' ) 'ens_', ensemble_id
        !Append ensemble_id to the restart filenames
-
-       !< Both calls are needed for cases where both fms2io/fmsio are used
        call fms2_io_set_filename_appendix(trim(text))
-#ifdef use_deprecated_io
-       call fms_io_set_filename_appendix(trim(text))
-#endif
     endif
 
   end subroutine ensemble_pelist_setup

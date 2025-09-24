@@ -1,28 +1,29 @@
 !***********************************************************************
-!*                   GNU Lesser General Public License
+!*                             Apache License 2.0
 !*
 !* This file is part of the GFDL Flexible Modeling System (FMS).
 !*
-!* FMS is free software: you can redistribute it and/or modify it under
-!* the terms of the GNU Lesser General Public License as published by
-!* the Free Software Foundation, either version 3 of the License, or (at
-!* your option) any later version.
+!* Licensed under the Apache License, Version 2.0 (the "License");
+!* you may not use this file except in compliance with the License.
+!* You may obtain a copy of the License at
+!*
+!*     http://www.apache.org/licenses/LICENSE-2.0
 !*
 !* FMS is distributed in the hope that it will be useful, but WITHOUT
-!* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
-!* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
-!* for more details.
-!*
-!* You should have received a copy of the GNU Lesser General Public
-!* License along with FMS.  If not, see <http://www.gnu.org/licenses/>.
+!* WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied;
+!* without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+!* PARTICULAR PURPOSE. See the License for the specific language
+!* governing permissions and limitations under the License.
 !***********************************************************************
 
 !> @brief Checks the output file after running test_subregional
 program check_subregional
+#ifdef use_yaml
   use fms_mod,           only: fms_init, fms_end, string
   use fms2_io_mod,       only: FmsNetcdfFile_t, read_data, close_file, open_file, get_dimension_size, file_exists
   use mpp_mod,           only: mpp_npes, mpp_error, FATAL, mpp_pe
   use platform_mod,      only: r4_kind, r8_kind
+  use yaml_parser_mod,   only: open_and_parse_file, get_num_blocks, get_block_ids, get_value_from_key
 
   implicit none
 
@@ -33,6 +34,7 @@ program check_subregional
   call check_subregional_file("test_subregional.nc")
   call check_subregional_file("test_subregional2.nc")
   call check_corner_files()
+  call check_manifest()
 
   call fms_end()
 
@@ -203,4 +205,31 @@ program check_subregional
 
   end subroutine check_corner_files
 
+  !> @brief Check that the number of time levels was written correctly in the diag manifest yaml
+  subroutine check_manifest()
+    integer              :: diag_yaml_id !< Id for the diag manifest yaml
+    integer              :: nfiles       !< Number of diag files in the yaml
+    integer, allocatable :: file_ids(:)  !< Ids for all the diag files in the yaml
+    integer              :: i            !< For do loops
+    integer              :: ntime_levels !< Number of time levels are read from the yaml
+
+    if ( .not. file_exists("diag_manifest.yaml.0")) &
+      call mpp_error(FATAL, "diag manifest file does not exist!")
+
+    diag_yaml_id = open_and_parse_file("diag_manifest.yaml.0")
+
+    nfiles = get_num_blocks(diag_yaml_id, "diag_files")
+    allocate(file_ids(nfiles))
+    call get_block_ids(diag_yaml_id, "diag_files", file_ids)
+
+    do i = 1, nfiles
+      ntime_levels = -999
+      call get_value_from_key(diag_yaml_id, file_ids(i), "number_of_timelevels", ntime_levels)
+
+      if (ntime_levels .ne. 8)&
+        call mpp_error(FATAL, "The number of time levels is not correct:: "//string(ntime_levels))
+    enddo
+
+  end subroutine check_manifest
+#endif
 end program
